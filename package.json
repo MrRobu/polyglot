@@ -1,0 +1,14 @@
+{
+  "name": "polyglot",
+  "version": "1.0.0",
+  "main": "index.js",
+  "license": "MIT",
+  "bin": {
+    "seed": "./seed.js",
+    "migrate": "./migrate.js"
+  },
+  "dependencies": {
+    "faker": "^4.1.0",
+    "mongodb": "^3.5.5"
+  }
+}
