@@ -24,10 +24,125 @@ client.connect(async err => {
 
   const db = client.db(dbName);
 
-  await init(db);
+  try {
+    // await init(db);
 
-  client.close();
+    // const genreNames = await db
+    //   .collection("genres")
+    //   .aggregate([{ $project: { name: 1 } }, { $limit: 1 }])
+    //   .toArray()
+    //   .then(genres => genres.map(g => g.name));
+
+    // console.log(genreNames);
+
+    // const res = await getBooksByGenreNames(db, genreNames);
+
+    // const res = await getTheBooksWithAllItemsSold(db);
+
+    // const res = await getTop5GreatestBookSells(db);
+
+    // const res = await getBookItemsWhereCostsAreGreaterThen(db, 50);
+
+    // console.log(res);
+  } catch (e) {
+    console.error(e);
+  } finally {
+    client.close();
+  }
 });
+
+async function getBookItemsWhereCostsAreGreaterThen(db, cost) {
+  return await db
+    .collection("bookItems")
+    .aggregate([
+      {
+        $lookup: {
+          from: "restorations",
+          localField: "_id",
+          foreignField: "bookItemId",
+          as: "restorations"
+        }
+      },
+      {
+        $unwind: "$restorations"
+      },
+      {
+        $group: {
+          _id: { _id: "$_id", price: "$price" },
+          totalCost: { $sum: "$restorations.cost" }
+        }
+      },
+      {
+        $match: { totalCost: { $gt: cost } }
+      }
+    ])
+    .toArray()
+    .then(items => items.map(i => i._id._id));
+}
+
+async function getTop5GreatestBookSells(db) {
+  return await db
+    .collection("bookItems")
+    .aggregate([
+      {
+        $group: {
+          _id: "$bookId",
+          total: { $sum: "$price" }
+        }
+      },
+      { $sort: { total: -1 } },
+      { $limit: 5 }
+    ])
+    .toArray();
+}
+
+async function getTheBooksWithAllItemsSold(db) {
+  return await db
+    .collection("books")
+    .aggregate([
+      {
+        $lookup: {
+          from: "bookItems",
+          localField: "_id",
+          foreignField: "bookId",
+          as: "items"
+        }
+      },
+      {
+        $match: {
+          "items.dateOfPurchase": { $ne: null }
+        }
+      },
+      {
+        $sort: { title: 1 }
+      }
+    ])
+    .toArray();
+}
+
+async function getBooksByGenreNames(db, genreNames) {
+  return await db
+    .collection("books")
+    .aggregate([
+      {
+        $lookup: {
+          from: "genres",
+          localField: "genreIds",
+          foreignField: "_id",
+          as: "genres"
+        }
+      },
+      {
+        $match: {
+          "genres.name": {
+            $all: genreNames
+          }
+        }
+      },
+      { $sort: { name: 1 } }
+    ])
+    .toArray();
+}
 
 async function init(db) {
   try {
@@ -44,6 +159,7 @@ async function init(db) {
       .insertMany(authorInserts)
       .then(res => Object.values(res.insertedIds));
 
+    // genres
     const genres = await db.createCollection("genres");
     await genres.deleteMany();
     const genreInserts = [];
@@ -52,11 +168,11 @@ async function init(db) {
       genreInserts.push(fakeGenre());
     }
 
-    const genreIds = await authors
+    const genreIds = await genres
       .insertMany(genreInserts)
       .then(res => Object.values(res.insertedIds));
 
-    // book
+    // books
     const books = await db.createCollection("books");
     await books.deleteMany();
     const bookInserts = [];
@@ -130,6 +246,7 @@ async function init(db) {
       }
     }
     await locationsInLibrary.insertMany(locationInLibraryInserts);
+    await restorations.insertMany(restorationInserts);
   } catch (e) {
     console.log(e);
   }
@@ -146,6 +263,8 @@ const fakeBook = data => ({
   title: faker.name.title(),
   subject: faker.lorem.sentence(),
   language: faker.random.locale(),
+  numberOfPages: rand(100, 500),
+  publishDate: faker.date.past(2),
   ...data
 });
 
@@ -154,16 +273,19 @@ const fakeGenre = () => ({
   description: faker.lorem.sentences()
 });
 
-const fakeBookItem = data => ({
-  barcode: faker.random.number(),
-  format: faker.random.arrayElement(bookItemFormats),
-  price: Math.floor(Math.random() * 5000 + 10000) / 100,
-  dateOfPurchase: faker.date.past(1),
-  status: faker.random.arrayElement(bookItemStatuses),
-  condition: faker.random.arrayElement(bookItemConditions),
-  availableToBorrow: faker.random.boolean(),
-  ...data
-});
+const fakeBookItem = data => {
+  const dateOfPurchase = faker.random.boolean() ? faker.date.past(1) : null;
+  return {
+    barcode: faker.random.number(),
+    format: faker.random.arrayElement(bookItemFormats),
+    price: Math.floor(Math.random() * 5000 + 10000) / 100,
+    dateOfPurchase,
+    status: faker.random.arrayElement(bookItemStatuses),
+    condition: faker.random.arrayElement(bookItemConditions),
+    availableToBorrow: !dateOfPurchase,
+    ...data
+  };
+};
 const bookItemFormats = ["pdf", "docx", "physical"];
 const bookItemStatuses = ["purchased", "reserved", "pending"];
 const bookItemConditions = ["good", "bad", "moderate"];
